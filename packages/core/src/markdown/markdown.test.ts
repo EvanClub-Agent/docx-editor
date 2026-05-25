@@ -21,7 +21,7 @@ import type {
 import type { MediaFile } from '../types/styles';
 import { toMarkdown } from './index';
 import { toMarkdownPaged } from './paged';
-import { toMarkdownAsync } from './async';
+import { toMarkdownAsync, toMarkdownPagedAsync } from './async';
 
 // ---------------------------------------------------------------------------
 // Tiny builders. Keep these noise-free so the actual test reads like a spec.
@@ -391,6 +391,27 @@ describe('toMarkdownPaged', () => {
   test('short docs with no signals are not warned about', () => {
     const result = toMarkdownPaged(doc([p('a'), p('b'), p('c')]));
     expect(result.warnings.some((w) => w.startsWith('no pagination signals'))).toBe(false);
+  });
+
+  test('layout-engine fallback splits cacheless docs into multiple pages', async () => {
+    const many: Paragraph[] = [];
+    for (let i = 0; i < 60; i++) {
+      many.push({
+        type: 'paragraph',
+        paraId: `P${i + 1}`,
+        content: [
+          {
+            type: 'run',
+            content: [{ type: 'text', text: `Paragraph ${i + 1}: ` + 'Lorem ipsum '.repeat(8) }],
+          },
+        ],
+      });
+    }
+    const heuristic = await toMarkdownPagedAsync(doc(many));
+    expect(heuristic.pages.length).toBe(1);
+    const withFallback = await toMarkdownPagedAsync(doc(many), { useLayoutEngine: 'fallback' });
+    expect(withFallback.pages.length).toBeGreaterThan(1);
+    expect(withFallback.warnings.some((w) => w.startsWith('no pagination signals'))).toBe(false);
   });
 
   test('emits header/footer when opts.headerFooter !== strip', () => {

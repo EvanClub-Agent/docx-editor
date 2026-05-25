@@ -184,6 +184,24 @@ export interface PagedMarkdownOptions extends MarkdownOptionsBase {
    * - `'all'`: emit them around each page's content.
    */
   headerFooter?: 'strip' | 'first-page' | 'all';
+  /**
+   * Run the full layout engine to produce pages instead of the default
+   * heuristic page splitter. Only honored by the async paged variant
+   * ({@link toMarkdownPagedAsync}) because the layout engine needs a
+   * Canvas2D context — in Node / Bun the implementation lazy-loads
+   * `@napi-rs/canvas` (optional peer dep).
+   *
+   * - `true`: always use the layout engine.
+   * - `'fallback'`: use the heuristic first; only run the layout engine if
+   *   the heuristic produced a single page on a substantial doc (i.e. the
+   *   doc has no pagination cache). Recommended for production.
+   * - Falsy / unset (default): heuristic only.
+   *
+   * Caveat: layout-engine pagination won't byte-match Word because Word's
+   * renderer differs from our layout + Skia. Expect ±1 page on
+   * cache-less docs. Use for "better than one page" not "matches Word".
+   */
+  useLayoutEngine?: boolean | 'fallback';
 }
 
 /**

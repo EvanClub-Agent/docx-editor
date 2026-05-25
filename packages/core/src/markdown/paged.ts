@@ -80,23 +80,32 @@ function renderPagedSync(
     ctx.warnings.push('document has no content');
     return { pages: [], combined: '', images: ctx.images, warnings: ctx.warnings };
   }
-  const pages = splitIntoPages(blocks);
-  // If a substantial doc has zero pagination signals, the whole body lands
-  // on one page. Surface that explicitly so callers don't silently get a
-  // single-page result when they expected multi-page output.
-  if (pages.length === 1 && hasSubstantialBody(blocks) && !hasAnyBreakSignal(blocks)) {
+  const groups = splitIntoPages(blocks);
+  if (groups.length === 1 && hasSubstantialBody(blocks) && !hasAnyBreakSignal(blocks)) {
     ctx.warnings.push(
       'no pagination signals found (renderedPageBreakBefore, explicit page breaks, or section breaks). Document renders as a single page. Open the .docx in Word once and resave to bake in pagination, or use toMarkdown for continuous output.'
     );
   }
+  return renderFromGroups(doc, groups, ctx);
+}
+
+/**
+ * Render a pre-computed grouping of source blocks into a paged result.
+ * Used by both the heuristic path (groups from `splitIntoPages`) and the
+ * async layout-engine fallback (groups from `headlessLayout.computePagedGroups`).
+ */
+export function renderFromGroups(
+  doc: Document,
+  groups: BlockContent[][],
+  ctx: RenderContext
+): PagedMarkdownResult {
   const renderedPages: Array<{ pageNumber: number; markdown: string }> = [];
 
-  pages.forEach((pageBlocks, idx) => {
+  groups.forEach((pageBlocks, idx) => {
     const pageNumber = idx + 1;
     ctx.pageNumber = pageNumber;
     const sections: string[] = [];
 
-    // Header/footer for this page
     if (ctx.opts.headerFooter !== 'strip') {
       const hf = resolveHeaderFooter(doc.package, pageNumber);
       if (hf.header && shouldEmitHeaderFooter(ctx, pageNumber)) {
@@ -121,8 +130,6 @@ function renderPagedSync(
     });
   });
 
-  // Append footnotes / hyperlink refs / comments sidecar to the LAST page so
-  // they show up exactly once in `combined`. Same emission logic as unpaged.
   if (renderedPages.length) {
     const last = renderedPages[renderedPages.length - 1];
     const withTrailers = appendTrailers(ctx, doc, last.markdown);

@@ -1,22 +1,30 @@
 /**
- * Async variants of `toMarkdown` / `toMarkdownPaged` that route every image
- * reference through an `imageHandler` callback and substitute the returned
- * string into the markdown.
+ * Async variants of `toMarkdown` / `toMarkdownPaged`.
  *
- * The handler receives the full `ImageRef` (bytes, base64, data URL, MIME
- * type, page number, alt text) plus the virtual path the markdown currently
- * uses. It returns the markdown chunk to substitute. Typical handlers return
- * `![description](url)` after uploading or describing the image, or `""` to
- * drop the image entirely.
+ * Two reasons to reach for an async variant:
  *
- * Per-image handler errors are caught, recorded in `warnings`, and the
- * default reference is left in place. The overall call only rejects when the
- * underlying `toMarkdown` / `toMarkdownPaged` parse fails.
+ * 1. **Image handler** — pass `opts.imageHandler` and the converter awaits
+ *    your callback per image to substitute the default reference. Use this
+ *    to upload to blob storage, replace with vision-model descriptions, or
+ *    drop images entirely.
+ *
+ * 2. **Layout-engine pagination** — paged-only. Pass
+ *    `opts.useLayoutEngine: true` (or `'fallback'`) to run the full layout
+ *    engine instead of the heuristic page splitter. Required when the doc
+ *    has no pagination cache (programmatically generated, never opened in
+ *    Word). Lazy-loads `@napi-rs/canvas` as an optional peer dep.
+ *
+ * Per-image handler errors are caught and recorded in `warnings`. The
+ * overall call only rejects when parsing fails.
  */
 
-import type { Document } from '../types/document';
+import type { BlockContent, Document } from '../types/document';
 import { toMarkdown } from './index';
-import { toMarkdownPaged } from './paged';
+import { toMarkdownPaged, renderFromGroups } from './paged';
+import { computePagedGroups } from './headlessLayout';
+import { isDocument } from './input';
+import { newContext } from './context';
+import { parseDocx } from '../docx/parser';
 import type {
   ImageHandler,
   ImageRef,
@@ -29,9 +37,9 @@ import type {
 type ByteInput = Uint8Array | ArrayBuffer;
 
 /**
- * Same as {@link toMarkdown} but applies `opts.imageHandler` to each image.
- * The handler's return value replaces the default `![alt](virtualPath)`
- * reference in the output.
+ * Same as {@link toMarkdown} but applies `opts.imageHandler` (if provided)
+ * to each image. The handler's return value replaces the default
+ * `![alt](virtualPath)` reference.
  *
  * @example Describe each image with a vision model
  * ```ts
@@ -49,12 +57,13 @@ type ByteInput = Uint8Array | ArrayBuffer;
  */
 export async function toMarkdownAsync(
   input: Document | ByteInput,
-  opts: MarkdownOptions & { imageHandler: ImageHandler }
+  opts: MarkdownOptions & { imageHandler?: ImageHandler } = {}
 ): Promise<MarkdownResult> {
   const base =
     input instanceof Uint8Array || input instanceof ArrayBuffer
       ? await toMarkdown(input, opts)
       : toMarkdown(input, opts);
+  if (!opts.imageHandler) return base;
   const markdown = await substituteImages(
     base.markdown,
     base.images,
@@ -65,27 +74,51 @@ export async function toMarkdownAsync(
 }
 
 /**
- * Same as {@link toMarkdownPaged} but applies `opts.imageHandler` to each
- * image. Substitution runs per page so the handler sees the right
- * `ref.pageNumber` for images that appear inside a page's body.
+ * Same as {@link toMarkdownPaged} but with two added capabilities:
+ *
+ * - `opts.imageHandler`: substitute each image through your callback.
+ * - `opts.useLayoutEngine`: run the layout engine for line-accurate page
+ *   boundaries instead of the heuristic. Required for DOCX files with no
+ *   pagination cache. `'fallback'` runs the heuristic first and only
+ *   re-paginates when the heuristic produced a single page on a
+ *   substantial doc — the recommended production setting.
+ *
+ * The layout engine path needs a Canvas2D context. In the browser the
+ * DOM provides it; in Node we lazy-import `@napi-rs/canvas`. Install it
+ * yourself to opt in:
+ *
+ * ```bash
+ * npm install --save-optional @napi-rs/canvas
+ * ```
  *
  * @public
  */
 export async function toMarkdownPagedAsync(
   input: Document | ByteInput,
-  opts: PagedMarkdownOptions & { imageHandler: ImageHandler }
+  opts: PagedMarkdownOptions & { imageHandler?: ImageHandler } = {}
 ): Promise<PagedMarkdownResult> {
-  const base =
+  // Materialize Document so both code paths can poke at it.
+  const doc =
     input instanceof Uint8Array || input instanceof ArrayBuffer
-      ? await toMarkdownPaged(input, opts)
-      : toMarkdownPaged(input, opts);
+      ? await parseDocx(input)
+      : isDocument(input)
+        ? input
+        : (() => {
+            throw new Error(
+              'toMarkdownPagedAsync expected Buffer, Uint8Array, ArrayBuffer, or Document.'
+            );
+          })();
+
+  const base = await runPaged(doc, opts);
+  if (!opts.imageHandler) return base;
+
   const pages = await Promise.all(
     base.pages.map(async (p) => ({
       pageNumber: p.pageNumber,
       markdown: await substituteImages(
         p.markdown,
         base.images,
-        opts.imageHandler,
+        opts.imageHandler!,
         base.warnings,
         p.pageNumber
       ),
@@ -97,16 +130,41 @@ export async function toMarkdownPagedAsync(
   return { ...base, pages, combined };
 }
 
+/**
+ * Pick the paged pipeline. Try the layout engine when opted in; fall back
+ * to the heuristic on any failure (canvas unavailable, layout error, etc.).
+ */
+async function runPaged(doc: Document, opts: PagedMarkdownOptions): Promise<PagedMarkdownResult> {
+  const heuristic = toMarkdownPaged(doc, opts);
+  if (!opts.useLayoutEngine) return heuristic;
+  // 'fallback' only triggers when heuristic produced a single page on a
+  // substantial doc (the case where no pagination cache exists).
+  if (opts.useLayoutEngine === 'fallback' && heuristic.pages.length > 1) return heuristic;
+
+  let groups: BlockContent[][] | null;
+  try {
+    groups = await computePagedGroups(doc);
+  } catch {
+    groups = null;
+  }
+  if (!groups || groups.length <= 1) {
+    heuristic.warnings.push(
+      `layout engine pagination unavailable (install @napi-rs/canvas as a peer dep, or run in a browser with DOM canvas access). Falling back to heuristic.`
+    );
+    return heuristic;
+  }
+
+  // Re-render via the layout-engine groups. Reuse the same ctx-builder so
+  // options resolve identically to the sync paged path.
+  const ctx = newContext(opts);
+  if (doc.warnings) ctx.warnings.unshift(...doc.warnings);
+  return renderFromGroups(doc, groups, ctx);
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * Resolve every registered image reference through the handler and rewrite
- * the markdown accordingly. The image map's keys are used as literal needles
- * so custom `imagePath` callbacks work too (the default `./images/...`
- * scheme is not assumed).
- */
 async function substituteImages(
   markdown: string,
   images: Map<string, ImageRef>,
@@ -140,10 +198,7 @@ async function substituteImages(
   for (const [virtualPath, , result] of replacements) {
     if (result === null) continue;
     const escaped = escapeRegExp(virtualPath);
-    // Markdown form (default emit path).
     out = out.replace(new RegExp(`!\\[[^\\]]*\\]\\(${escaped}\\)`, 'g'), () => result);
-    // HTML <img> form (emitted inside HTML-mode table cells, header/footer
-    // blocks, anywhere markdown wouldn't be re-parsed).
     out = out.replace(new RegExp(`<img\\b[^>]*\\bsrc="${escaped}"[^>]*>`, 'g'), () => result);
   }
   return out;
