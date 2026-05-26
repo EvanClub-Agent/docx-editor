@@ -434,6 +434,31 @@ function convertTableRow(
 }
 
 /**
+ * Derive per-column widths from a row whose cells map 1:1 to the table grid.
+ * Returns the widths from the first row where every cell has `colSpan === 1`
+ * and a defined positive `width` — those cell widths ARE the column widths.
+ * Returns undefined when no such row exists (e.g., every row has a horizontal
+ * span or some cell width is missing); the caller falls back to `w:tblGrid`.
+ */
+function deriveColumnWidthsFromCells(rows: TableRow[]): number[] | undefined {
+  for (const row of rows) {
+    if (row.cells.length === 0) continue;
+    const widths: number[] = [];
+    let usable = true;
+    for (const cell of row.cells) {
+      const colSpan = cell.colSpan ?? 1;
+      if (colSpan !== 1 || cell.width === undefined || cell.width <= 0) {
+        usable = false;
+        break;
+      }
+      widths.push(cell.width);
+    }
+    if (usable) return widths;
+  }
+  return undefined;
+}
+
+/**
  * Convert a table node to a TableBlock.
  */
 function convertTable(node: PMNode, startPos: number, options: ToFlowBlocksOptions): TableBlock {
@@ -461,13 +486,37 @@ function convertTable(node: PMNode, startPos: number, options: ToFlowBlocksOptio
   const width = node.attrs.width as number | undefined;
   const widthType = node.attrs.widthType as string | undefined;
 
-  // Fallback: compute column widths from first row cell widths if table attr is missing
-  if (!columnWidths && rows.length > 0) {
-    const firstRow = rows[0];
-    const cellWidths = firstRow.cells.map((cell) => cell.width);
-    // Only use if all cells have widths defined
-    if (cellWidths.every((w) => w !== undefined && w > 0)) {
-      columnWidths = cellWidths as number[];
+  // Word's autofit layout (default — ECMA-376 §17.4.52 w:tblLayout) silently
+  // rebuilds the column grid from per-cell w:tcW values when they disagree
+  // with w:tblGrid. The grid (§17.4.49) is the canonical structure and tcW
+  // (§17.4.72) is a preferred width per §17.18.87, but the layout algorithm
+  // reconciles the two. Some generators — docx4j, python-docx, and Word
+  // itself in certain header/footer templates — emit an equalized tblGrid
+  // alongside explicit cell widths. The PM table spec renders cells off tcW
+  // so the inline editor stays right; without this override the painter would
+  // equalize while the inline editor would not (issue #468). Conservative
+  // gating: only override when the grid is uniformly equalized, the cells
+  // aren't, and totals roughly agree. Fixed-layout tables opt out — there
+  // the grid is authoritative by spec.
+  const tableFormatting = node.attrs._originalFormatting as
+    | { layout?: 'fixed' | 'autofit' }
+    | undefined;
+  if (tableFormatting?.layout !== 'fixed') {
+    const cellDerived = deriveColumnWidthsFromCells(rows);
+    if (cellDerived) {
+      if (!columnWidths || columnWidths.length === 0) {
+        columnWidths = cellDerived;
+      } else if (columnWidths.length === cellDerived.length) {
+        const grid = columnWidths;
+        const gridTotal = grid.reduce((a, b) => a + b, 0);
+        const cellsTotal = cellDerived.reduce((a, b) => a + b, 0);
+        const totalsAgree = gridTotal > 0 && Math.abs(cellsTotal - gridTotal) / gridTotal < 0.02;
+        const gridIsEqualized = grid.every((w) => Math.abs(w - grid[0]) < 0.5);
+        const cellsAreUnequal = !cellDerived.every((w) => Math.abs(w - cellDerived[0]) < 0.5);
+        if (totalsAgree && gridIsEqualized && cellsAreUnequal) {
+          columnWidths = cellDerived;
+        }
+      }
     }
   }
 
