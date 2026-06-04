@@ -910,6 +910,7 @@ export { findPageIndexContainingPmPos } from './findPageIndexContainingPmPos';
 export {
   isFloatingTextBoxBlock,
   floatingTextBoxWrapsText,
+  floatingTextBoxReservesBand,
   type TextBoxFlowAttrs,
 } from './textBoxFlow';
 export { isFloatingWrapType, isWrapNone, wrapsAroundText } from '../docx/wrapTypes';

@@ -218,6 +218,7 @@ export interface FloatingExclusionRect {
 export interface FloatingImageZone {
     // (undocumented)
     bottomY: number;
+    fullWidthBlock?: boolean;
     // (undocumented)
     leftMargin: number;
     // (undocumented)
@@ -235,6 +236,9 @@ export interface FloatingLineSegmentZone {
     // (undocumented)
     leftOffset: number;
 }
+
+// @public
+export type FloatPageGeometry = PageGeometry;
 
 // @public
 export interface FontMetrics {
@@ -423,7 +427,7 @@ export type MeasureBlockFn = (block: FlowBlock, contentWidth: number, floatingZo
 export type MeasureBlocksFn = (blocks: FlowBlock[], contentWidth: number) => Measure[];
 
 // @public
-export function measureBlocksWithFloats(blocks: FlowBlock[], contentWidth: number | number[], measureBlock: MeasureBlockFn): Measure[];
+export function measureBlocksWithFloats(blocks: FlowBlock[], contentWidth: number | number[], measureBlock: MeasureBlockFn, pageGeometry?: FloatPageGeometry): Measure[];
 
 // @public
 export function measureParagraph(block: ParagraphBlock, maxWidth: number, options?: MeasureParagraphOptions): ParagraphMeasure;

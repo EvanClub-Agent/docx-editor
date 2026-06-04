@@ -51,7 +51,11 @@ import {
 } from '../layout-bridge/measuring';
 import { resolveFontFamily } from '../utils/fontResolver';
 import { pointsToPixels } from '../utils/units';
-import { floatingTextBoxWrapsText, isFloatingTextBoxBlock } from '../layout-engine/textBoxFlow';
+import {
+  floatingTextBoxReservesBand,
+  floatingTextBoxWrapsText,
+  isFloatingTextBoxBlock,
+} from '../layout-engine/textBoxFlow';
 import {
   floatingImageIsBehindDoc,
   floatingImageWrapsText,
@@ -578,7 +582,11 @@ export function renderPage(
       fragment.x = page.margins.left + resolved.x;
       fragment.y = page.margins.top + resolved.y;
 
-      if (!floatingTextBoxWrapsText(textBoxBlock)) continue;
+      // topAndBottom reserves a full-width band (text flows above/below);
+      // side-wrap types reserve a side exclusion. Both push a rect — the band
+      // is distinguished by `wrapType` in rectsToFloatingZones.
+      const reservesBand = floatingTextBoxReservesBand(textBoxBlock);
+      if (!reservesBand && !floatingTextBoxWrapsText(textBoxBlock)) continue;
 
       floatingRects.push({
         side: resolved.side,

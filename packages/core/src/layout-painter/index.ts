@@ -67,6 +67,15 @@ export {
 export type { RenderPagesUpdateKind };
 export type { HeaderFooterContent, RenderPageOptions, FootnoteRenderItem } from './renderPage';
 
+// Anchored-object position resolution — shared with the measure pipeline so the
+// reserved float band lines up with where the painter places the object.
+export {
+  resolveAnchoredObjectPosition,
+  resolveAnchoredObjectVerticalTop,
+  pageGeometryFromPage,
+  type PageGeometry,
+} from './anchoredObjectPosition';
+
 // Block-level content-control (SDT) focus chrome — keep the boundary box and
 // label visible while the caret is inside the control, shared by both adapters.
 export { enclosingSdtGroupIds, applySdtFocus } from './sdtBoundary';

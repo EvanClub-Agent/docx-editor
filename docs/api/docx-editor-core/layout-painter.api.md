@@ -129,6 +129,25 @@ export class LayoutPainter {
 }
 
 // @public
+export interface PageGeometry {
+    // (undocumented)
+    contentHeight: number;
+    // (undocumented)
+    contentWidth: number;
+    // (undocumented)
+    marginLeft: number;
+    // (undocumented)
+    marginTop: number;
+    // (undocumented)
+    pageHeight: number;
+    // (undocumented)
+    pageWidth: number;
+}
+
+// @public (undocumented)
+export function pageGeometryFromPage(page: Pick<Page, 'size' | 'margins'>): PageGeometry;
+
+// @public
 export interface PainterOptions {
     containerBackground?: string;
     document?: Document;
@@ -210,6 +229,12 @@ export function renderTableFragment(fragment: TableFragment, block: TableBlock, 
 
 // @public
 export function renderTextBoxFragment(fragment: TextBoxFragment, block: TextBoxBlock, measure: TextBoxMeasure, context: RenderContext, options?: RenderTextBoxFragmentOptions): HTMLElement;
+
+// @public (undocumented)
+export function resolveAnchoredObjectPosition(object: AnchoredObjectPositionInput, fragmentY: number, contentWidth: number, geometry?: PageGeometry): AnchoredObjectPosition;
+
+// @public
+export function resolveAnchoredObjectVerticalTop(object: AnchoredObjectPositionInput, fragmentY: number, geometry?: PageGeometry): number;
 
 // @public
 export function sliceRunsForLine(block: ParagraphBlock, line: MeasuredLine): Run[];

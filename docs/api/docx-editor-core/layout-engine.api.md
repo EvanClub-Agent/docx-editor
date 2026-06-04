@@ -160,6 +160,9 @@ export type FloatingTablePosition = {
 };
 
 // @public
+export function floatingTextBoxReservesBand(block: TextBoxFlowAttrs): boolean;
+
+// @public
 export function floatingTextBoxWrapsText(block: TextBoxFlowAttrs): boolean;
 
 // @public
