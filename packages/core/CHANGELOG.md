@@ -1,5 +1,12 @@
 # @eigenpal/docx-editor-core
 
+## 1.3.3
+
+### Patch Changes
+
+- 15d4f39: Fix header content overlapping the body when a header contains a floating text box (e.g. a centered banner). The floating box is now positioned without pushing the in-flow header paragraphs below it — so a centered banner sits beside the surrounding header text and the body no longer overlaps the header on multi-page documents. Inline and top-and-bottom boxes still reserve vertical space.
+- 06fa96b: Fix list-marker alignment when a list paragraph's direct indent has a `hanging` value larger than its `left` indent. The marker now hangs into the left margin to align with the surrounding text (matching Word) instead of being clamped to the content edge and shifted right. Fixes #729.
+
 ## 1.3.2
 
 ### Patch Changes
